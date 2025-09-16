@@ -30,9 +30,9 @@ type AssignTaskArgs struct {
 }
 
 type AssignTaskReply struct {
-	Id       int
-	TaskType string
-	Split    FileSplit
+	TaskId   int
+	TaskType TaskType
+	Splits   []Split
 }
 
 // Cook up a unique-ish UNIX-domain socket name

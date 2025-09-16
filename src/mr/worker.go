@@ -10,11 +10,6 @@ import (
 	"time"
 )
 
-type worker struct {
-	id string
-	task *AssignTaskReply
-}
-
 // Map functions return a slice of KeyValue.
 type KeyValue struct {
 	Key   string
@@ -34,26 +29,38 @@ func Worker(
 	mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string,) {
 
-	w := worker{}
-	w.id = strconv.Itoa(rand.Int())
+	workerId := strconv.Itoa(rand.Int())
 	
 	
 	for {
-		task := w.askForWork()
+		task := askForWork(workerId)
 		fmt.Printf("got task %v\n", task)
-		w.task = task
-		if task == nil || task.TaskType == "wait" {
+		
+		if task == nil || task.TaskType == TaskTypeWait {
 			time.Sleep(500 * time.Millisecond)
+			continue
 		}
 
-		
+		if task.TaskType == TaskTypeMap {
+			runMapTask(task, mapf)
+		}
+
+		if task.TaskType == TaskTypeReduce {
+			
+		}
 	}
 }
 
-func (w *worker) askForWork() *AssignTaskReply {
+func runMapTask(task *AssignTaskReply,
+				mapf func(string, string) []KeyValue,) {
+
+	time.Sleep(5 * time.Second)
+}
+
+func askForWork(workerId string) *AssignTaskReply {
 
 	args := AssignTaskArgs{}
-	args.WorkerId = w.id
+	args.WorkerId = workerId
 	
 	reply := AssignTaskReply{}
 
