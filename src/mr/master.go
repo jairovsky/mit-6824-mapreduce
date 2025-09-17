@@ -64,16 +64,6 @@ var waitTask = Task {
 	Type: TaskTypeWait,
 }
 
-// Your code here -- RPC handlers for the worker to call.
-
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
-	return nil
-}
-
 // start a thread that listens for RPCs from worker.go
 func (m *Master) server() {
 	rpc.Register(m)
@@ -98,15 +88,15 @@ func (m *Master) Done() bool {
 	return ret
 }
 
-func (m *Master) findTask() (bool, *Task) {
+func (m *Master) findTask() (*Task, bool) {
 
 	for _, t := range m.mapTasks {
 		if t.Status == Unassigned {
-			return true, t
+			return t, true
 		}
 	}
 
-	return false, nil
+	return nil, false
 }
 
 
@@ -115,7 +105,7 @@ func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error 
 	m.onRPC(args.WorkerId)
 
 	m.mutex.Lock()
-	found, t := m.findTask()
+	t, found := m.findTask()
 
 	if !found {
 		t = &waitTask
