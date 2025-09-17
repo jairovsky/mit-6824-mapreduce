@@ -33,6 +33,7 @@ type AssignTaskReply struct {
 	TaskId   int
 	TaskType TaskType
 	Splits   []Split
+	R        int
 }
 
 // Cook up a unique-ish UNIX-domain socket name

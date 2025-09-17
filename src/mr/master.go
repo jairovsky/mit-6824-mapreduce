@@ -115,13 +115,13 @@ func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error 
 	m.onRPC(args.WorkerId)
 
 	m.mutex.Lock()
-	success, t := m.findTask()
+	found, t := m.findTask()
 
-	t.Status = Running
-	t.Worker = m.workers[args.WorkerId]
-
-	if !success {
+	if !found {
 		t = &waitTask
+	} else {
+		t.Status = Running
+		t.Worker = m.workers[args.WorkerId]
 	}
 
 	m.mutex.Unlock()
@@ -129,6 +129,7 @@ func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error 
 	reply.TaskId = t.TaskId
 	reply.TaskType = t.Type
 	reply.Splits = t.Splits
+	reply.R = m.R
 
 	return nil
 }

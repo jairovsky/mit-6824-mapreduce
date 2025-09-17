@@ -8,6 +8,9 @@ import (
 	"math/rand"
 	"strconv"
 	"time"
+	"io/ioutil"
+	"os"
+	"encoding/json"
 )
 
 // Map functions return a slice of KeyValue.
@@ -54,7 +57,61 @@ func Worker(
 func runMapTask(task *AssignTaskReply,
 				mapf func(string, string) []KeyValue,) {
 
-	time.Sleep(5 * time.Second)
+	outputFiles := createTaskOutputTempFiles(task.R)
+	fmt.Printf("temp files created %v \n", outputFiles)
+
+	mapFuncResults := make([]KeyValue, 0)
+	for _, split := range task.Splits {
+		mapFuncResults = append(
+			mapFuncResults,
+			mapf(split.Path, readFile(split.Path))...,
+		)
+	}
+
+	fmt.Printf("generated %d keys\n", len(mapFuncResults))
+
+	for _,r := range mapFuncResults {
+		p := choosePartitionRegion(r.Key, task.R)
+		payload, err := json.Marshal(r)
+		payload = append(payload, '\n')
+		if err != nil {
+			log.Fatalf("can't encode json")
+		}
+		_, err = outputFiles[p].Write(payload)
+		if err != nil {
+			log.Fatalf("can't write json to file")
+		}
+	}
+}
+
+func createTaskOutputTempFiles(nFiles int) []*os.File {
+	tmpfiles := make([]*os.File, nFiles)
+	for i := 0; i < nFiles; i++ {
+		tmpf, err := ioutil.TempFile("", "mr-map-output")
+		if err != nil {
+			log.Fatalf("can't create temp file")
+		}
+		tmpfiles[i] = tmpf
+	}
+
+	return tmpfiles
+}
+
+func readFile(path string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		log.Fatalf("cannot open %v", path)
+	}
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatalf("cannot read %v", path)
+	}
+	file.Close()
+	return string(content)
+}
+
+func choosePartitionRegion(key string, R int) int {
+	return ihash(key) % R
 }
 
 func askForWork(workerId string) *AssignTaskReply {
@@ -71,27 +128,6 @@ func askForWork(workerId string) *AssignTaskReply {
 	}
 	
 	return nil
-}
-
-// example function to show how to make an RPC call to the master.
-//
-// the RPC argument and reply types are defined in rpc.go.
-func CallExample() {
-
-	// declare an argument structure.
-	args := ExampleArgs{}
-
-	// fill in the argument(s).
-	args.X = 99
-
-	// declare a reply structure.
-	reply := ExampleReply{}
-
-	// send the RPC request, wait for the reply.
-	call("Master.Example", &args, &reply)
-
-	// reply.Y should be 100.
-	fmt.Printf("reply.Y %v\n", reply.Y)
 }
 
 // send an RPC request to the master, wait for the response.
