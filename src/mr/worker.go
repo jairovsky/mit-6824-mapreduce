@@ -34,7 +34,6 @@ func Worker(
 
 	workerId := strconv.Itoa(rand.Int())
 	
-	
 	for {
 		task := askForWork(workerId)
 		fmt.Printf("got task %v\n", task)
@@ -45,7 +44,7 @@ func Worker(
 		}
 
 		if task.TaskType == TaskTypeMap {
-			runMapTask(task, mapf)
+			runMapTask(workerId, task, mapf)
 		}
 
 		if task.TaskType == TaskTypeReduce {
@@ -54,7 +53,8 @@ func Worker(
 	}
 }
 
-func runMapTask(task *AssignTaskReply,
+func runMapTask(workerId string,
+	            task *AssignTaskReply,
 				mapf func(string, string) []KeyValue,) {
 
 	outputFiles := createTaskOutputTempFiles(task.R)
@@ -72,15 +72,29 @@ func runMapTask(task *AssignTaskReply,
 
 	for _,r := range mapFuncResults {
 		p := choosePartitionRegion(r.Key, task.R)
+		
 		payload, err := json.Marshal(r)
 		payload = append(payload, '\n')
 		if err != nil {
 			log.Fatalf("can't encode json")
 		}
+		
 		_, err = outputFiles[p].Write(payload)
 		if err != nil {
 			log.Fatalf("can't write json to file")
 		}
+	}
+
+	splits := make([]Split, task.R)
+	for i, f := range outputFiles {
+		err := f.Close()
+		if err != nil {
+			log.Fatalf("can't close file")
+		}
+		
+		finalFileName := fmt.Sprintf("mr-map-%d-%d", task.TaskId, i)
+		os.Rename(f.Name(), finalFileName)
+		splits[i].Path = finalFileName
 	}
 }
 
