@@ -17,9 +17,9 @@ type WorkerStatus int
 type TaskType int
 
 const (
-	Unassigned TaskStatus = iota
-	Running
-	Finished
+	Idle TaskStatus = iota
+	InProgress
+	Completed
 )
 
 const (
@@ -91,7 +91,7 @@ func (m *Master) Done() bool {
 func (m *Master) findTask() (*Task, bool) {
 
 	for _, t := range m.mapTasks {
-		if t.Status == Unassigned {
+		if t.Status == Idle {
 			return t, true
 		}
 	}
@@ -110,7 +110,7 @@ func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error 
 	if !found {
 		t = &waitTask
 	} else {
-		t.Status = Running
+		t.Status = InProgress
 		t.Worker = m.workers[args.WorkerId]
 	}
 
@@ -156,7 +156,7 @@ func MakeMaster(files []string, nReduce int) *Master {
 		mapTasks[i] = &Task{
 			TaskId: i,
 			Type:   TaskTypeMap,
-			Status: Unassigned,
+			Status: Idle,
 			Splits: []Split{{
 				Path: f,
 			}},
