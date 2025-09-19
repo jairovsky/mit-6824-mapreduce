@@ -92,20 +92,27 @@ func (m *Master) Done() bool {
 	return ret
 }
 
-func (m *Master) findTask() (*Task, bool) {
+func (m *Master) findTask(workerId string) (*Task, bool) {
 
 	if !m.allTasksCompleted(TaskTypeMap) {
-		return findIdleTask(m.mapTasks)
+		return findIdleTask(workerId, m.mapTasks)
 	}
 
 	if !m.allTasksCompleted(TaskTypeReduce) {
-		return findIdleTask(m.reduceTasks)
+		return findIdleTask(workerId, m.reduceTasks)
 	}
 
 	return nil, false
 }
 
-func findIdleTask(tasks []*Task) (*Task, bool) {
+func findIdleTask(workerId string, tasks []*Task) (*Task, bool) {
+
+	for _, t := range tasks {
+		if t.WorkerId == workerId {
+			return nil, false
+		}
+	}
+
 	for _, t := range tasks {
 		if t.Status == Idle {
 			return t, true
@@ -134,7 +141,7 @@ func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error 
 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	t, found := m.findTask()
+	t, found := m.findTask(args.WorkerId)
 
 	if !found {
 		t = &waitTask
@@ -164,6 +171,7 @@ func (m *Master) CompleteTask(args *CompleteTaskArgs, reply *interface{}) error 
 		t := m.mapTasks[args.TaskId]
 		t.LastInteraction = time.Now()
 		t.Status = Completed
+		t.WorkerId = ""
 
 		for i, s := range args.Splits {
 			m.reduceTasks[i].Splits = append(m.reduceTasks[i].Splits, s)
