@@ -53,11 +53,14 @@ type Split struct {
 }
 
 type Master struct {
-	mutex       sync.Mutex
-	mapTasks    []*Task
-	reduceTasks []*Task
-	workers     map[string]*EnrolledWorker
-	R           int
+	// R is, in the paper's terminology, the number of concurrent reduce tasks
+	R                    int
+	mapTasks             []*Task
+	mapTasksCompleted    int
+	reduceTasks          []*Task
+	reduceTasksCompleted int
+	workers              map[string]*EnrolledWorker
+	mutex                sync.Mutex
 }
 
 var waitTask = Task{
@@ -105,6 +108,7 @@ func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error 
 	m.onRPC(args.WorkerId)
 
 	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	t, found := m.findTask()
 
 	if !found {
@@ -114,8 +118,6 @@ func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error 
 		t.LastInteraction = time.Now()
 		t.WorkerId = args.WorkerId
 	}
-
-	m.mutex.Unlock()
 
 	reply.TaskId = t.TaskId
 	reply.TaskType = t.Type
@@ -128,6 +130,23 @@ func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error 
 func (m *Master) CompleteTask(args *CompleteTaskArgs, reply *interface{}) error {
 
 	m.onRPC(args.WorkerId)
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if args.TaskType == TaskTypeMap {
+
+		t := m.mapTasks[args.TaskId]
+		t.LastInteraction = time.Now()
+		t.Status = Completed
+
+		for i, s := range args.Splits {
+			m.reduceTasks[i].Splits = append(m.reduceTasks[i].Splits, s)
+		}
+
+		m.mapTasksCompleted += 1
+		log.Printf("# of map tasks completed: %d", m.mapTasksCompleted)
+	}
 
 	return nil
 }
@@ -171,8 +190,18 @@ func MakeMaster(files []string, nReduce int) *Master {
 		}
 	}
 	m.mapTasks = mapTasks
+	m.mapTasksCompleted = 0
 
 	m.reduceTasks = make([]*Task, nReduce)
+	for i := 0; i < nReduce; i++ {
+		m.reduceTasks[i] = &Task{
+			TaskId: i,
+			Type:   TaskTypeReduce,
+			Status: Idle,
+			Splits: []Split{},
+		}
+	}
+	m.reduceTasksCompleted = 0
 
 	m.R = nReduce
 
