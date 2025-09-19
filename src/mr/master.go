@@ -94,13 +94,38 @@ func (m *Master) Done() bool {
 
 func (m *Master) findTask() (*Task, bool) {
 
-	for _, t := range m.mapTasks {
+	if !m.allTasksCompleted(TaskTypeMap) {
+		return findIdleTask(m.mapTasks)
+	}
+
+	if !m.allTasksCompleted(TaskTypeReduce) {
+		return findIdleTask(m.reduceTasks)
+	}
+
+	return nil, false
+}
+
+func findIdleTask(tasks []*Task) (*Task, bool) {
+	for _, t := range tasks {
 		if t.Status == Idle {
 			return t, true
 		}
 	}
 
 	return nil, false
+}
+
+func (m *Master) allTasksCompleted(taskType TaskType) bool {
+
+	if taskType == TaskTypeMap {
+		return len(m.mapTasks) == m.mapTasksCompleted
+	}
+
+	if taskType == TaskTypeReduce {
+		return len(m.reduceTasks) == m.reduceTasksCompleted
+	}
+
+	return false
 }
 
 func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error {
