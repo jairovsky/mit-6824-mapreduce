@@ -1,7 +1,8 @@
 package mr
 
 import (
-//	"io"
+	//	"io"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -9,7 +10,6 @@ import (
 	"os"
 	"sync"
 	"time"
-	"fmt"
 )
 
 type TaskStatus int
@@ -34,34 +34,35 @@ const (
 )
 
 type Task struct {
-	TaskId int
-	Type   TaskType
-	Status TaskStatus
-	Splits []Split
-	Worker EnrolledWorker
+	TaskId          int
+	Type            TaskType
+	Status          TaskStatus
+	Splits          []Split
+	LastInteraction time.Time
+	WorkerId        string
 }
 
 type EnrolledWorker struct {
-	Id string
-	Status WorkerStatus
+	Id              string
+	Status          WorkerStatus
 	LastInteraction time.Time
 }
 
 type Split struct {
-	Path  string
+	Path string
 }
 
 type Master struct {
 	mutex       sync.Mutex
 	mapTasks    []*Task
 	reduceTasks []*Task
-	workers     map[string]EnrolledWorker
+	workers     map[string]*EnrolledWorker
 	R           int
 }
 
-var waitTask = Task {
+var waitTask = Task{
 	TaskId: -1,
-	Type: TaskTypeWait,
+	Type:   TaskTypeWait,
 }
 
 // start a thread that listens for RPCs from worker.go
@@ -99,7 +100,6 @@ func (m *Master) findTask() (*Task, bool) {
 	return nil, false
 }
 
-
 func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error {
 
 	m.onRPC(args.WorkerId)
@@ -111,7 +111,8 @@ func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error 
 		t = &waitTask
 	} else {
 		t.Status = InProgress
-		t.Worker = m.workers[args.WorkerId]
+		t.LastInteraction = time.Now()
+		t.WorkerId = args.WorkerId
 	}
 
 	m.mutex.Unlock()
@@ -124,6 +125,13 @@ func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error 
 	return nil
 }
 
+func (m *Master) CompleteTask(args *CompleteTaskArgs, reply *interface{}) error {
+
+	m.onRPC(args.WorkerId)
+
+	return nil
+}
+
 func (m *Master) onRPC(workerId string) {
 
 	m.mutex.Lock()
@@ -132,9 +140,9 @@ func (m *Master) onRPC(workerId string) {
 	w, exists := m.workers[workerId]
 	if !exists {
 		fmt.Printf("registering worker %s\n", workerId)
-		m.workers[workerId] = EnrolledWorker{
-			Id:     workerId,
-			Status: WorkerIdle,
+		m.workers[workerId] = &EnrolledWorker{
+			Id:              workerId,
+			Status:          WorkerIdle,
 			LastInteraction: time.Now(),
 		}
 	} else {
@@ -149,8 +157,8 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m := Master{}
 
 	fmt.Printf("files to process: %v \n", files)
-	m.workers = make(map[string]EnrolledWorker)
-	
+	m.workers = make(map[string]*EnrolledWorker)
+
 	mapTasks := make([]*Task, len(files))
 	for i, f := range files {
 		mapTasks[i] = &Task{

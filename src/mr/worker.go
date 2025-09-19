@@ -1,16 +1,16 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
-	"net/rpc"
 	"math/rand"
+	"net/rpc"
+	"os"
 	"strconv"
 	"time"
-	"io/ioutil"
-	"os"
-	"encoding/json"
 )
 
 // Map functions return a slice of KeyValue.
@@ -30,14 +30,14 @@ func ihash(key string) int {
 // main/mrworker.go calls this function.
 func Worker(
 	mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string,) {
+	reducef func(string, []string) string) {
 
 	workerId := strconv.Itoa(rand.Int())
-	
+
 	for {
 		task := askForWork(workerId)
 		fmt.Printf("got task %v\n", task)
-		
+
 		if task == nil || task.TaskType == TaskTypeWait {
 			time.Sleep(500 * time.Millisecond)
 			continue
@@ -48,14 +48,14 @@ func Worker(
 		}
 
 		if task.TaskType == TaskTypeReduce {
-			
+
 		}
 	}
 }
 
 func runMapTask(workerId string,
-	            task *AssignTaskReply,
-				mapf func(string, string) []KeyValue,) {
+	task *AssignTaskReply,
+	mapf func(string, string) []KeyValue) {
 
 	outputFiles := createTaskOutputTempFiles(task.R)
 	fmt.Printf("temp files created %v \n", outputFiles)
@@ -70,15 +70,15 @@ func runMapTask(workerId string,
 
 	fmt.Printf("generated %d keys\n", len(mapFuncResults))
 
-	for _,r := range mapFuncResults {
+	for _, r := range mapFuncResults {
 		p := choosePartitionRegion(r.Key, task.R)
-		
+
 		payload, err := json.Marshal(r)
 		payload = append(payload, '\n')
 		if err != nil {
 			log.Fatalf("can't encode json")
 		}
-		
+
 		_, err = outputFiles[p].Write(payload)
 		if err != nil {
 			log.Fatalf("can't write json to file")
@@ -91,11 +91,16 @@ func runMapTask(workerId string,
 		if err != nil {
 			log.Fatalf("can't close file")
 		}
-		
+
 		finalFileName := fmt.Sprintf("mr-map-%d-%d", task.TaskId, i)
-		os.Rename(f.Name(), finalFileName)
+		err = os.Rename(f.Name(), finalFileName)
+		if err != nil {
+			log.Fatalf("can't rename file")
+		}
 		splits[i].Path = finalFileName
 	}
+
+	completeTask(workerId, task.TaskId, task.TaskType, splits)
 }
 
 func createTaskOutputTempFiles(nFiles int) []*os.File {
@@ -132,7 +137,7 @@ func askForWork(workerId string) *AssignTaskReply {
 
 	args := AssignTaskArgs{}
 	args.WorkerId = workerId
-	
+
 	reply := AssignTaskReply{}
 
 	success := call("Master.AssignTask", &args, &reply)
@@ -140,8 +145,32 @@ func askForWork(workerId string) *AssignTaskReply {
 	if success {
 		return &reply
 	}
-	
+
 	return nil
+}
+
+func completeTask(
+	workerId string,
+	taskId int,
+	taskType TaskType,
+	splits []Split,
+) bool {
+
+	args := CompleteTaskArgs{
+		WorkerId: workerId,
+		TaskType: taskType,
+		TaskId:   taskId,
+		Splits:   splits,
+	}
+
+	reply := new(interface{})
+
+	completed := call("Master.CompleteTask", &args, &reply)
+	if !completed {
+		log.Println("Error while trying to send CompleteTask")
+	}
+
+	return completed
 }
 
 // send an RPC request to the master, wait for the response.
