@@ -2,7 +2,7 @@ package mr
 
 import (
 	//	"io"
-	"fmt"
+	// "fmt"
 	"log"
 	"net"
 	"net/http"
@@ -158,7 +158,7 @@ func (m *Master) onRPC(workerId string) {
 
 	w, exists := m.workers[workerId]
 	if !exists {
-		fmt.Printf("registering worker %s\n", workerId)
+		log.Printf("registering worker %s", workerId)
 		m.workers[workerId] = &EnrolledWorker{
 			Id:              workerId,
 			Status:          WorkerIdle,
@@ -175,7 +175,7 @@ func (m *Master) onRPC(workerId string) {
 func MakeMaster(files []string, nReduce int) *Master {
 	m := Master{}
 
-	fmt.Printf("files to process: %v \n", files)
+	log.Printf("files to process: %v", files)
 	m.workers = make(map[string]*EnrolledWorker)
 
 	mapTasks := make([]*Task, len(files))
