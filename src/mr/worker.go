@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -9,6 +10,7 @@ import (
 	"math/rand"
 	"net/rpc"
 	"os"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -18,6 +20,12 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+type ByKey []KeyValue
+
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -36,7 +44,7 @@ func Worker(
 
 	for {
 		task := askForWork(workerId)
-		fmt.Printf("got task %v\n", task)
+		log.Printf("got task %v", task)
 
 		if task == nil || task.TaskType == TaskTypeWait {
 			time.Sleep(500 * time.Millisecond)
@@ -48,7 +56,7 @@ func Worker(
 		}
 
 		if task.TaskType == TaskTypeReduce {
-
+			runReduceTask(workerId, task, reducef)
 		}
 	}
 }
@@ -58,7 +66,6 @@ func runMapTask(workerId string,
 	mapf func(string, string) []KeyValue) {
 
 	outputFiles := createTaskOutputTempFiles(task.R)
-	fmt.Printf("temp files created %v \n", outputFiles)
 
 	mapFuncResults := make([]KeyValue, 0)
 	for _, split := range task.Splits {
@@ -103,21 +110,67 @@ func runMapTask(workerId string,
 	completeTask(workerId, task.TaskId, task.TaskType, splits)
 }
 
+func runReduceTask(workerId string,
+	task *AssignTaskReply,
+	reducef func(string, []string) string) {
+
+	outputFile := createTaskOutputTempFile()
+
+	mapResultsByKey := make(map[string][]string)
+	for _, split := range task.Splits {
+		keyValues := readKeyValues(split.Path)
+		for _, kv := range keyValues {
+			value, exists := mapResultsByKey[kv.Key]
+			if !exists {
+				value = make([]string, 0)
+			}
+			mapResultsByKey[kv.Key] = append(value, kv.Value)
+		}
+	}
+
+	reduceResults := make([]KeyValue, 0)
+	for k, v := range mapResultsByKey {
+		kv := KeyValue{}
+		kv.Key = k
+		kv.Value = reducef(k, v)
+		reduceResults = append(reduceResults, kv)
+
+	}
+	sort.Sort(ByKey(reduceResults))
+	for _, rr := range reduceResults {
+		outputFile.WriteString(fmt.Sprintf("%s %s\n", rr.Key, rr.Value))
+	}
+	err := outputFile.Close()
+	if err != nil {
+		log.Fatal("can't close file")
+	}
+	os.Rename(outputFile.Name(), fmt.Sprintf("mr-out-%d", task.TaskId))
+
+	splits := make([]Split, 0)
+
+	completeTask(workerId, task.TaskId, task.TaskType, splits)
+}
+
 func createTaskOutputTempFiles(nFiles int) []*os.File {
 	tmpfiles := make([]*os.File, nFiles)
 	for i := 0; i < nFiles; i++ {
-		tmpf, err := ioutil.TempFile("", "mr-map-output")
-		if err != nil {
-			log.Fatalf("can't create temp file")
-		}
-		tmpfiles[i] = tmpf
+		tmpfiles[i] = createTaskOutputTempFile()
 	}
 
 	return tmpfiles
 }
 
+func createTaskOutputTempFile() *os.File {
+	tmpf, err := ioutil.TempFile("", "mr-temp")
+	if err != nil {
+		log.Fatalf("can't create temp file")
+	}
+	return tmpf
+}
+
 func readFile(path string) string {
 	file, err := os.Open(path)
+	defer file.Close()
 	if err != nil {
 		log.Fatalf("cannot open %v", path)
 	}
@@ -125,8 +178,24 @@ func readFile(path string) string {
 	if err != nil {
 		log.Fatalf("cannot read %v", path)
 	}
-	file.Close()
 	return string(content)
+}
+
+func readKeyValues(path string) []KeyValue {
+	file, err := os.Open(path)
+	if err != nil {
+		log.Fatalf("cannot open %v", path)
+	}
+
+	keyValues := make([]KeyValue, 0)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		var kv KeyValue
+		json.Unmarshal(line, &kv)
+		keyValues = append(keyValues, kv)
+	}
+	return keyValues
 }
 
 func choosePartitionRegion(key string, R int) int {

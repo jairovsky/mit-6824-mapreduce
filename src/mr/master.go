@@ -168,10 +168,7 @@ func (m *Master) CompleteTask(args *CompleteTaskArgs, reply *interface{}) error 
 
 	if args.TaskType == TaskTypeMap {
 
-		t := m.mapTasks[args.TaskId]
-		t.LastInteraction = time.Now()
-		t.Status = Completed
-		t.WorkerId = ""
+		updateCompleteTask(m.mapTasks[args.TaskId])
 
 		for i, s := range args.Splits {
 			m.reduceTasks[i].Splits = append(m.reduceTasks[i].Splits, s)
@@ -181,7 +178,21 @@ func (m *Master) CompleteTask(args *CompleteTaskArgs, reply *interface{}) error 
 		log.Printf("# of map tasks completed: %d", m.mapTasksCompleted)
 	}
 
+	if args.TaskType == TaskTypeReduce {
+
+		updateCompleteTask(m.reduceTasks[args.TaskId])
+
+		m.reduceTasksCompleted += 1
+		log.Printf("# of reduce tasks completed: %d", m.reduceTasksCompleted)
+	}
+
 	return nil
+}
+
+func updateCompleteTask(t *Task) {
+	t.LastInteraction = time.Now()
+	t.Status = Completed
+	t.WorkerId = ""
 }
 
 func (m *Master) onRPC(workerId string) {
