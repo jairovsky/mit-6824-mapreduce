@@ -46,7 +46,12 @@ func Worker(
 		task := askForWork(workerId)
 		log.Printf("got task %v", task)
 
-		if task == nil || task.TaskType == TaskTypeWait {
+		if task == nil {
+			log.Printf("received a nil task. Exiting...")
+			os.Exit(0)
+		}
+
+		if task.TaskType == TaskTypeWait {
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
