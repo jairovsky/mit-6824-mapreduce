@@ -54,7 +54,7 @@ type Master struct {
 	mapTasksCompleted    int
 	reduceTasks          []*Task
 	reduceTasksCompleted int
-	mutex                sync.Mutex
+	mutex                sync.RWMutex
 	stragglerTicker      *time.Ticker
 }
 
@@ -80,6 +80,10 @@ func (m *Master) server() {
 // main/mrmaster.go calls Done() periodically to find out
 // if the entire job has finished.
 func (m *Master) Done() bool {
+
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
 	ret := m.allTasksCompleted(TaskTypeMap) && m.allTasksCompleted(TaskTypeReduce)
 
 	return ret
