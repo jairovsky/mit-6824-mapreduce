@@ -1,8 +1,7 @@
 package mr
 
 import (
-	//	"io"
-	// "fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -33,6 +32,8 @@ const (
 	TaskTypeWait
 )
 
+const TaskMaxExecutionTime = 10 * time.Second
+
 type Task struct {
 	TaskId          int
 	Type            TaskType
@@ -40,12 +41,6 @@ type Task struct {
 	Splits          []Split
 	LastInteraction time.Time
 	WorkerId        string
-}
-
-type EnrolledWorker struct {
-	Id              string
-	Status          WorkerStatus
-	LastInteraction time.Time
 }
 
 type Split struct {
@@ -59,8 +54,8 @@ type Master struct {
 	mapTasksCompleted    int
 	reduceTasks          []*Task
 	reduceTasksCompleted int
-	workers              map[string]*EnrolledWorker
 	mutex                sync.Mutex
+	stragglerTicker      *time.Ticker
 }
 
 var waitTask = Task{
@@ -135,8 +130,6 @@ func (m *Master) allTasksCompleted(taskType TaskType) bool {
 
 func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error {
 
-	m.onRPC(args.WorkerId)
-
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	t, found := m.findTask(args.WorkerId)
@@ -158,8 +151,6 @@ func (m *Master) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error 
 }
 
 func (m *Master) CompleteTask(args *CompleteTaskArgs, reply *interface{}) error {
-
-	m.onRPC(args.WorkerId)
 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -193,21 +184,25 @@ func updateCompleteTask(t *Task) {
 	t.WorkerId = ""
 }
 
-func (m *Master) onRPC(workerId string) {
+func updateIdleTask(t *Task) {
+	t.LastInteraction = time.Now()
+	t.Status = Idle
+	t.WorkerId = ""
+}
 
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+func (m *Master) stragglerSupervisor() {
+	for {
+		instant := <-m.stragglerTicker.C
 
-	w, exists := m.workers[workerId]
-	if !exists {
-		log.Printf("registering worker %s", workerId)
-		m.workers[workerId] = &EnrolledWorker{
-			Id:              workerId,
-			Status:          WorkerIdle,
-			LastInteraction: time.Now(),
+		m.mutex.Lock()
+		for _, t := range append(m.mapTasks, m.reduceTasks...) {
+			elapsed := instant.Sub(t.LastInteraction)
+			isDue := elapsed > TaskMaxExecutionTime
+			if t.Status == InProgress && isDue {
+				updateIdleTask(t)
+			}
 		}
-	} else {
-		w.LastInteraction = time.Now()
+		m.mutex.Unlock()
 	}
 }
 
@@ -215,10 +210,14 @@ func (m *Master) onRPC(workerId string) {
 // main/mrmaster.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeMaster(files []string, nReduce int) *Master {
+
+	if os.Getenv("MR_LOGS") == "false" {
+		log.SetOutput(ioutil.Discard)
+	}
+
 	m := Master{}
 
 	log.Printf("files to process: %v", files)
-	m.workers = make(map[string]*EnrolledWorker)
 
 	mapTasks := make([]*Task, len(files))
 	for i, f := range files {
@@ -246,6 +245,9 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m.reduceTasksCompleted = 0
 
 	m.R = nReduce
+
+	m.stragglerTicker = time.NewTicker(10 * time.Second)
+	go m.stragglerSupervisor()
 
 	m.server()
 	return &m

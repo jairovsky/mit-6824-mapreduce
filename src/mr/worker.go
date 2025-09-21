@@ -40,12 +40,17 @@ func Worker(
 	mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
+	if os.Getenv("MR_LOGS") == "false" {
+		log.SetOutput(ioutil.Discard)
+	}
+
 	rand.Seed(time.Now().UnixNano() + int64(os.Getpid()))
 	workerId := strconv.Itoa(rand.Int())
+	log.Printf("starting worker %s", workerId)
 
 	for {
 		task := askForWork(workerId)
-		log.Printf("got task %v", task)
+		log.Printf("worker %s got task %v", workerId, task)
 
 		if task == nil {
 			log.Printf("received a nil task. Exiting...")
@@ -81,7 +86,7 @@ func runMapTask(workerId string,
 		)
 	}
 
-	fmt.Printf("generated %d keys\n", len(mapFuncResults))
+	log.Printf("generated %d keys", len(mapFuncResults))
 
 	for _, r := range mapFuncResults {
 		p := choosePartitionRegion(r.Key, task.R)
