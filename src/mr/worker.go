@@ -40,6 +40,7 @@ func Worker(
 	mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
+	rand.Seed(time.Now().UnixNano() + int64(os.Getpid()))
 	workerId := strconv.Itoa(rand.Int())
 
 	for {
